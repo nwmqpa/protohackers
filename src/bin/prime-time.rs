@@ -41,7 +41,6 @@ impl Response {
 
         Ok(format!("{value}\n").as_bytes().to_vec())
     }
-
 }
 
 fn primality_test(number: isize) -> bool {
@@ -75,7 +74,10 @@ async fn decode_request(socket: &mut TcpStream, data: &[u8]) -> anyhow::Result<R
     }
 }
 
-async fn send_malformed_response(socket: &mut TcpStream, response: MalformedResponse) -> anyhow::Result<()> {
+async fn send_malformed_response(
+    socket: &mut TcpStream,
+    response: MalformedResponse,
+) -> anyhow::Result<()> {
     eprintln!("Sending: {:?}", response);
 
     socket.write(&response.as_bytes()?).await?;
@@ -94,14 +96,13 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
             break;
         }
 
-        println!("Received {:x?}", &buf[..bytes_read]);
-
         acc_data.extend_from_slice(&buf[..bytes_read]);
 
         let has_newline = acc_data.iter().enumerate().find(|(_, b)| **b == '\n' as u8);
 
         if let Some((index, _)) = has_newline {
-            let Request { method, number } = decode_request(&mut socket, &acc_data[..=index]).await?;
+            let Request { method, number } =
+                decode_request(&mut socket, &acc_data[..=index]).await?;
 
             if method != "isPrime" {
                 let malformed_response = MalformedResponse {
@@ -112,15 +113,16 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
                 break;
             }
 
+            println!("Analyzing number: {number}");
+
             let response = Response {
                 method,
                 prime: primality_test(number),
             };
 
-
             socket.write(&response.as_bytes()?).await?;
 
-            let (_, right) = acc_data.split_at(index);
+            let (_, right) = acc_data.split_at(index + 1);
 
             acc_data = right.to_vec();
         }
