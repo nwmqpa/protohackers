@@ -102,16 +102,19 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 
             println!("Analyzing number: {number}");
 
-            let response = if number.is_negative() {
-                Response {
-                    method,
-                    prime: false,
-                }
+            
+
+            let is_prime = if number.is_negative() {
+                false
             } else {
-                Response {
-                    method,
-                    prime: is_prime::is_prime(&number.to_string()),
-                }
+                tokio::task::spawn_blocking(move || {
+                    is_prime::is_prime(&number.to_string())
+                }).await?
+            };
+
+            let response = Response {
+                method,
+                prime: is_prime,
             };
 
             socket.write(&response.as_bytes()?).await?;
