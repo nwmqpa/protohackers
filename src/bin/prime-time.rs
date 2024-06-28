@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use clap::Parser;
-use is_prime::is_prime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -12,8 +11,7 @@ struct Config {
     #[clap(short, long, default_value = "127.0.0.1:50051")]
     pub addr: String,
 
-
-    #[clap(long, default_value_t = 5555)]
+    #[clap(long, default_value_t = 6669)]
     pub tokio_console_port: u16,
 }
 
@@ -111,7 +109,10 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
             let is_prime = if number.is_negative() {
                 false
             } else {
-                tokio::task::spawn_blocking(move || is_prime::is_prime(&number.to_string())).await?
+                tokio::task::Builder::new()
+                    .name(&format!("is_prime({:?})", &number))
+                    .spawn_blocking(move || is_prime::is_prime(&number.to_string()))?
+                    .await?
             };
 
             let response = Response {
@@ -147,9 +148,11 @@ async fn main() -> anyhow::Result<()> {
         tokio::select! {
             socket = listener.accept() => {
                 if let Ok((socket, _)) = socket {
-                    if let Err(why) = process(socket).await {
-                        eprintln!("Error: {:?}", why);
-                    }
+                    tokio::task::Builder::new().name(&format!("Processing socket: {:?}", &socket)).spawn(async move {
+                        if let Err(why) = process(socket).await {
+                            eprintln!("Error: {:?}", why);
+                        }
+                    })?;
                 }
             },
             _ = tokio::signal::ctrl_c() => {
