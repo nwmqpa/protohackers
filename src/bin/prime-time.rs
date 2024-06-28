@@ -21,9 +21,9 @@ struct Config {
 #[derive(serde::Deserialize, Debug)]
 #[serde(untagged)]
 enum Number {
+    Integer(isize),
     #[allow(dead_code)]
     Float(f64),
-    Integer(isize),
 }
 
 #[derive(serde::Deserialize)]
