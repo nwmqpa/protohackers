@@ -1,13 +1,9 @@
 use std::collections::HashMap;
-use std::io::Read;
-use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context;
 use clap::Parser;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::RwLock;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -43,7 +39,10 @@ async fn process(mut socket: TcpStream, addr: String) -> anyhow::Result<()> {
 
         let mut chunks = acc_data.chunks_exact(9);
 
+        
         for data in &mut chunks {
+            tracing::debug!("Chunk: {data:?}");
+
             match data[0] as char {
                 'I' => {
                     let timestamp = i32::from_be_bytes(data[1..=4].try_into()?);
@@ -75,6 +74,9 @@ async fn process(mut socket: TcpStream, addr: String) -> anyhow::Result<()> {
                         0
                     } else {
                         let values_sum = values.into_iter().sum::<i32>();
+
+                        println!("values_sum: {values_sum}, values_len: {values_len}");
+
                         values_sum / values_len
                     };
 
