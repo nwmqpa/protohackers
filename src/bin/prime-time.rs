@@ -18,10 +18,18 @@ struct Config {
     pub tokio_console_port: u16,
 }
 
+#[derive(serde::Deserialize, Debug)]
+#[serde(untagged)]
+enum Number {
+    #[allow(dead_code)]
+    Float(f64),
+    Integer(isize),
+}
+
 #[derive(serde::Deserialize)]
 struct Request {
     pub method: String,
-    pub number: isize,
+    pub number: Number,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -113,15 +121,20 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
                     break;
                 }
 
-                tracing::info!("Analyzing number: {number}");
+                tracing::info!("Analyzing number: {number:?}");
 
-                let is_prime = if number.is_negative() {
-                    false
-                } else {
-                    tokio::task::Builder::new()
-                        .name(&format!("is_prime({:?})", &number))
-                        .spawn_blocking(move || is_prime::is_prime(&number.to_string()))?
-                        .await?
+                let is_prime = match number {
+                    Number::Float(_) => false,
+                    Number::Integer(number) => {
+                        if number.is_negative() {
+                            false
+                        } else {
+                            tokio::task::Builder::new()
+                                .name(&format!("is_prime({:?})", &number))
+                                .spawn_blocking(move || is_prime::is_prime(&number.to_string()))?
+                                .await?
+                        }
+                    }
                 };
 
                 let response = Response {
