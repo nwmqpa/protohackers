@@ -95,7 +95,7 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
         if let Some((index, _)) = has_newline {
             let Request { method, number } = decode_request(&mut socket, &acc_data[..=index]).await?;
 
-            if method != "is_prime" {
+            if method != "isPrime" {
                 let malformed_response = MalformedResponse {
                     error: "Method not found".to_string(),
                 };
