@@ -11,6 +11,10 @@ path = "src/bin/smoke-test.rs"
 name = "prime-time"
 path = "src/bin/prime-time.rs"
 
+[[bin]]
+name = "mean-end"
+path = "src/bin/mean-end.rs"
+
 [dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5.7", features = ["derive"] }
