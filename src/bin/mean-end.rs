@@ -35,14 +35,10 @@ async fn process(mut socket: TcpStream, addr: String) -> anyhow::Result<()> {
 
         acc_data.extend_from_slice(&buf[..bytes_read]);
 
-        tracing::debug!("Received {bytes_read} bytes");
-
         let mut chunks = acc_data.chunks_exact(9);
 
         
         for data in &mut chunks {
-            tracing::debug!("Chunk: {data:?}");
-
             match data[0] as char {
                 'I' => {
                     let timestamp = i32::from_be_bytes(data[1..=4].try_into()?);
@@ -75,8 +71,6 @@ async fn process(mut socket: TcpStream, addr: String) -> anyhow::Result<()> {
                         0
                     } else {
                         let values_sum = values.into_iter().sum::<isize>();
-
-                        println!("values_sum: {values_sum}, values_len: {values_len}");
 
                         values_sum / values_len
                     };
