@@ -14,7 +14,7 @@ struct Config {
 #[derive(serde::Deserialize)]
 struct Request {
     pub method: String,
-    pub number: isize,
+    pub number: usize,
 }
 
 #[derive(serde::Serialize, Debug)]
