@@ -1,4 +1,5 @@
 use clap::Parser;
+use is_prime::is_prime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -41,20 +42,6 @@ impl Response {
 
         Ok(format!("{value}\n").as_bytes().to_vec())
     }
-}
-
-fn primality_test(number: isize) -> bool {
-    if number < 2 {
-        return false;
-    }
-
-    for i in 2..number {
-        if number % i == 0 {
-            return false;
-        }
-    }
-
-    true
 }
 
 async fn decode_request(socket: &mut TcpStream, data: &[u8]) -> anyhow::Result<Request> {
@@ -117,7 +104,7 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 
             let response = Response {
                 method,
-                prime: primality_test(number),
+                prime: is_prime::is_prime(&number.to_string()),
             };
 
             socket.write(&response.as_bytes()?).await?;
