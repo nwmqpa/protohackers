@@ -14,7 +14,7 @@ struct Config {
 #[derive(serde::Deserialize)]
 struct Request {
     pub method: String,
-    pub number: usize,
+    pub number: isize,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -102,9 +102,16 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 
             println!("Analyzing number: {number}");
 
-            let response = Response {
-                method,
-                prime: is_prime::is_prime(&number.to_string()),
+            let response = if number.is_negative() {
+                Response {
+                    method,
+                    prime: is_prime::is_prime(&(-number).to_string()),
+                }
+            } else {
+                Response {
+                    method,
+                    prime: is_prime::is_prime(&number.to_string()),
+                }
             };
 
             socket.write(&response.as_bytes()?).await?;
