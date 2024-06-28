@@ -89,6 +89,8 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 
         acc_data.extend_from_slice(&buf[..bytes_read]);
 
+        println!("Received: {:?}", String::from_utf8_lossy(&buf[..bytes_read]));
+
         let has_newline = acc_data.iter().enumerate().find(|(_, b)| **b == '\n' as u8);
 
         if let Some((index, _)) = has_newline {
@@ -120,7 +122,11 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
                 prime: is_prime,
             };
 
-            socket.write(&response.as_bytes()?).await?;
+            let response = response.as_bytes()?;
+
+            println!("Sent: {:?}", String::from_utf8_lossy(&response));
+
+            socket.write(&response).await?;
 
             let (_, right) = acc_data.split_at(index + 1);
 
@@ -147,8 +153,8 @@ async fn main() -> anyhow::Result<()> {
     loop {
         tokio::select! {
             socket = listener.accept() => {
-                if let Ok((socket, _)) = socket {
-                    tokio::task::Builder::new().name(&format!("Processing socket: {:?}", &socket)).spawn(async move {
+                if let Ok((socket, addr)) = socket {
+                    tokio::task::Builder::new().name(&format!("Processing socket: {}:{}", addr.ip(), addr.port())).spawn(async move {
                         if let Err(why) = process(socket).await {
                             eprintln!("Error: {:?}", why);
                         }
