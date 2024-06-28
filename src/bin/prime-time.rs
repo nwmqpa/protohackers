@@ -16,13 +16,13 @@ struct Request {
     pub number: isize,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug)]
 struct Response {
     pub method: String,
     pub prime: bool,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug)]
 struct MalformedResponse {
     pub error: String,
 }
@@ -68,11 +68,19 @@ async fn decode_request(socket: &mut TcpStream, data: &[u8]) -> anyhow::Result<R
                 error: format!("{:?}", why),
             };
 
-            socket.write(&malformed_response.as_bytes()?).await?;
+            send_malformed_response(socket, malformed_response).await?;
 
             Err(why.into())
         }
     }
+}
+
+async fn send_malformed_response(socket: &mut TcpStream, response: MalformedResponse) -> anyhow::Result<()> {
+    eprintln!("Sending: {:?}", response);
+
+    socket.write(&response.as_bytes()?).await?;
+
+    Ok(())
 }
 
 async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
@@ -97,10 +105,10 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 
             if method != "isPrime" {
                 let malformed_response = MalformedResponse {
-                    error: "Method not found".to_string(),
+                    error: format!("Method not found: {method:?}"),
                 };
 
-                socket.write(&malformed_response.as_bytes()?).await?;
+                send_malformed_response(&mut socket, malformed_response).await?;
                 break;
             }
 
