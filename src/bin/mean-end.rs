@@ -66,21 +66,22 @@ async fn process(mut socket: TcpStream, addr: String) -> anyhow::Result<()> {
                     let values = keys
                         .into_iter()
                         .filter_map(|k| account.get(k))
-                        .collect::<Vec<&i32>>();
+                        .map(|v| *v as isize)
+                        .collect::<Vec<isize>>();
 
-                    let values_len = values.len() as i32;
+                    let values_len = values.len() as isize;
 
                     let mean = if values_len == 0 {
                         0
                     } else {
-                        let values_sum = values.into_iter().sum::<i32>();
+                        let values_sum = values.into_iter().sum::<isize>();
 
                         println!("values_sum: {values_sum}, values_len: {values_len}");
 
                         values_sum / values_len
                     };
 
-                    socket.write(&mean.to_be_bytes()).await?;
+                    socket.write(&(mean as i32).to_be_bytes()).await?;
                 }
                 _ => {}
             }
