@@ -23,7 +23,8 @@ struct Config {
     pub tokio_console_port: u16,
 }
 
-async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
+#[tracing::instrument(skip(socket))]
+async fn process(mut socket: TcpStream, addr: String) -> anyhow::Result<()> {
     let mut acc_data = Vec::new();
     let mut buf = [0; BUFFER_SIZE];
 
@@ -63,11 +64,19 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
                         .filter(|k| (mintime <= **k) && (**k <= maxtime))
                         .collect::<Vec<_>>();
 
-                    let values = keys.into_iter().filter_map(|k| account.get(k)).collect::<Vec<&i32>>();
+                    let values = keys
+                        .into_iter()
+                        .filter_map(|k| account.get(k))
+                        .collect::<Vec<&i32>>();
 
                     let values_len = values.len() as i32;
-                    let values_sum = values.into_iter().sum::<i32>();
-                    let mean = values_sum / values_len;
+
+                    let mean = if values_len == 0 {
+                        0
+                    } else {
+                        let values_sum = values.into_iter().sum::<i32>();
+                        values_sum / values_len
+                    };
 
                     socket.write(&mean.to_be_bytes()).await?;
                 }
@@ -103,10 +112,12 @@ async fn main() -> anyhow::Result<()> {
         tokio::select! {
             socket = listener.accept() => {
                 if let Ok((socket, addr)) = socket {
+                    let addr = format!("{}:{}", addr.ip(), addr.port());
+
                     tokio::task::Builder::new().name(
-                        &format!("Processing socket: {}:{}", addr.ip(), addr.port())
+                        &format!("Processing socket: {}", &addr)
                     ).spawn(async move {
-                        if let Err(why) = process(socket).await {
+                        if let Err(why) = process(socket, addr).await {
                             tracing::error!("Error: {:?}", why);
                         }
                     })?;
