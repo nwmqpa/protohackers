@@ -29,7 +29,7 @@ struct MalformedResponse {
 
 impl MalformedResponse {
     pub fn as_bytes(&self) -> serde_json::Result<Vec<u8>> {
-        let vec = serde_json::to_vec(self)?;
+        let vec = serde_json::to_string(self)?;
 
         Ok(format!("{:?}\n", vec).as_bytes().to_vec())
     }
@@ -37,7 +37,7 @@ impl MalformedResponse {
 
 impl Response {
     pub fn as_bytes(&self) -> serde_json::Result<Vec<u8>> {
-        let vec = serde_json::to_vec(self)?;
+        let vec = serde_json::to_string(self)?;
 
         Ok(format!("{:?}\n", vec).as_bytes().to_vec())
     }
