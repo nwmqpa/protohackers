@@ -15,6 +15,10 @@ path = "src/bin/prime-time.rs"
 name = "mean-end"
 path = "src/bin/mean-end.rs"
 
+[[bin]]
+name = "budget-chat"
+path = "src/bin/budget-chat.rs"
+
 [dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5.7", features = ["derive"] }
