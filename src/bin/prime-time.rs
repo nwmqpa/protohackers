@@ -29,17 +29,17 @@ struct MalformedResponse {
 
 impl MalformedResponse {
     pub fn as_bytes(&self) -> serde_json::Result<Vec<u8>> {
-        let vec = serde_json::to_string(self)?;
+        let value = serde_json::to_string(self)?;
 
-        Ok(format!("{:?}\n", vec).as_bytes().to_vec())
+        Ok(format!("{value}\n").as_bytes().to_vec())
     }
 }
 
 impl Response {
     pub fn as_bytes(&self) -> serde_json::Result<Vec<u8>> {
-        let vec = serde_json::to_string(self)?;
+        let value = serde_json::to_string(self)?;
 
-        Ok(format!("{:?}\n", vec).as_bytes().to_vec())
+        Ok(format!("{value}\n").as_bytes().to_vec())
     }
 
 }
@@ -138,12 +138,19 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&config.addr).await?;
 
     loop {
-        let (socket, _) = listener.accept().await?;
-
-        tokio::spawn(async move {
-            if let Err(why) = process(socket).await {
-                eprintln!("Error: {:?}", why);
+        tokio::select! {
+            socket = listener.accept() => {
+                if let Ok((socket, _)) = socket {
+                    if let Err(why) = process(socket).await {
+                        eprintln!("Error: {:?}", why);
+                    }
+                }
+            },
+            _ = tokio::signal::ctrl_c() => {
+                break;
             }
-        });
+        }
     }
+
+    Ok(())
 }
