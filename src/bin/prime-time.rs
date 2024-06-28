@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use clap::Parser;
 use is_prime::is_prime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -9,6 +11,10 @@ const BUFFER_SIZE: usize = 1024;
 struct Config {
     #[clap(short, long, default_value = "127.0.0.1:50051")]
     pub addr: String,
+
+
+    #[clap(long, default_value_t = 5555)]
+    pub tokio_console_port: u16,
 }
 
 #[derive(serde::Deserialize)]
@@ -102,14 +108,10 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 
             println!("Analyzing number: {number}");
 
-            
-
             let is_prime = if number.is_negative() {
                 false
             } else {
-                tokio::task::spawn_blocking(move || {
-                    is_prime::is_prime(&number.to_string())
-                }).await?
+                tokio::task::spawn_blocking(move || is_prime::is_prime(&number.to_string())).await?
             };
 
             let response = Response {
@@ -133,6 +135,11 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::parse();
+
+    console_subscriber::ConsoleLayer::builder()
+        .retention(Duration::from_secs(60))
+        .server_addr(([0, 0, 0, 0], config.tokio_console_port))
+        .init();
 
     let listener = TcpListener::bind(&config.addr).await?;
 
