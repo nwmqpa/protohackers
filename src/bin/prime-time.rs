@@ -105,7 +105,7 @@ async fn process(mut socket: TcpStream) -> anyhow::Result<()> {
             let response = if number.is_negative() {
                 Response {
                     method,
-                    prime: is_prime::is_prime(&(-number).to_string()),
+                    prime: false,
                 }
             } else {
                 Response {
