@@ -6,6 +6,7 @@ use clap::Parser;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
+use tracing::Value;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -33,14 +34,12 @@ impl<T: Clone + std::fmt::Debug> ValueHolder<T> {
         Self(RwLock::new(None))
     }
 
-    #[tracing::instrument(skip(self), ret)]
     pub async fn read(&self) -> Option<T> {
         let read_guard = self.0.read().await;
 
         read_guard.clone()
     }
 
-    #[tracing::instrument(skip(self), ret)]
     pub async fn write(&self, value: T) -> Option<T> {
         let mut write_guard = self.0.write().await;
 
@@ -53,6 +52,7 @@ impl<T: Clone + std::fmt::Debug> ValueHolder<T> {
 }
 
 struct Connection {
+    name_holder: Arc<ValueHolder<String>>,
     buffer: RwLock<Vec<u8>>,
     socket: RwLock<TcpStream>,
 }
@@ -60,10 +60,11 @@ struct Connection {
 impl Connection {
     const BUFFER_SIZE: usize = 1024;
 
-    pub fn new(socket: TcpStream) -> Self {
+    pub fn new(socket: TcpStream, name_holder: Arc<ValueHolder<String>>) -> Self {
         Self {
             buffer: RwLock::new(Vec::new()),
             socket: RwLock::new(socket),
+            name_holder
         }
     }
 
@@ -119,7 +120,9 @@ impl Connection {
 
     #[tracing::instrument(skip(self, data), err)]
     pub async fn send<S: AsRef<str>>(&self, data: S) -> std::io::Result<usize> {
-        tracing::debug!("Sending {}", data.as_ref());
+        let name = self.name_holder.read().await.unwrap_or("Unknown".to_string());
+
+        tracing::debug!("Sending {:?} to {name}", data.as_ref());
 
         self.socket
             .write()
