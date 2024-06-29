@@ -141,7 +141,7 @@ async fn process(
 ) -> anyhow::Result<()> {
     let name = Arc::new(ValueHolder::new());
 
-    let connection = Arc::new(Connection::new(socket));
+    let connection = Arc::new(Connection::new(socket, name.clone()));
 
     let new_name = name.clone();
     let mut rx = tx.subscribe();
