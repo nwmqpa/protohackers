@@ -55,18 +55,71 @@ impl<T: Clone + std::fmt::Debug> ValueHolder<T> {
 
 #[tracing::instrument(skip(socket, tx, accounts))]
 async fn process(
-    mut socket: TcpStream,
+    socket: TcpStream,
     addr: String,
     tx: broadcast::Sender<Messages>,
     accounts: Arc<RwLock<Vec<String>>>,
 ) -> anyhow::Result<()> {
     let name = Arc::new(ValueHolder::new());
+    let socket_holder = Arc::new(RwLock::new(socket));
 
-    socket
+    let new_name = name.clone();
+    let mut rx = tx.subscribe();
+
+    let new_socket_holder = socket_holder.clone();
+
+    tokio::task::Builder::new()
+        .name(&format!("Receive Loop: {addr}"))
+        .spawn(async move {
+            while let Ok(data) = rx.recv().await {
+                if let Some(local_name) = new_name.read().await {
+                    match data {
+                        Messages::UserJoining(name) => {
+                            if name != local_name {
+                                if let Err(why) = new_socket_holder
+                                    .write()
+                                    .await
+                                    .write(format!("* {name} has entered the room\n").as_bytes())
+                                    .await
+                                {
+                                    tracing::error!("{why:?}");
+                                }
+                            }
+                        }
+                        Messages::UserMessage(name, message) => {
+                            if name != local_name {
+                                if let Err(why) = new_socket_holder
+                                    .write()
+                                    .await
+                                    .write(format!("[{name}] {message}\n").as_bytes())
+                                    .await
+                                {
+                                    tracing::error!("{why:?}");
+                                }
+                            }
+                        }
+                        Messages::UserDisconnecting(name) => {
+                            if name != local_name {
+                                if let Err(why) = new_socket_holder
+                                    .write()
+                                    .await
+                                    .write(format!("* {name} has left the room\n").as_bytes())
+                                    .await
+                                {
+                                    tracing::error!("{why:?}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        })?;
+
+    socket_holder
+        .write()
+        .await
         .write("Welcome to budgetchat! What shall I call you?\n".as_bytes())
         .await?;
-
-    let socket_holder = Arc::new(RwLock::new(socket));
 
     let mut acc_data = Vec::new();
     let mut buf = [0; BUFFER_SIZE];
@@ -113,67 +166,15 @@ async fn process(
 
                 tx.send(Messages::UserJoining(local_name.clone()))?;
 
-                let mut rx = tx.subscribe();
-
                 socket_holder
                     .write()
                     .await
-                    .write(format!("* The room contains: {}\n", other_accounts.join(", ")).as_bytes())
+                    .write(
+                        format!("* The room contains: {}\n", other_accounts.join(", ")).as_bytes(),
+                    )
                     .await?;
 
-                let socket_holder = socket_holder.clone();
-
                 accounts.write().await.push(local_name.clone());
-
-                tokio::task::Builder::new()
-                    .name(&format!("Receive Loop: {local_name}"))
-                    .spawn(async move {
-                        while let Ok(data) = rx.recv().await {
-                            match data {
-                                Messages::UserJoining(name) => {
-                                    if name != local_name {
-                                        if let Err(why) = socket_holder
-                                            .write()
-                                            .await
-                                            .write(
-                                                format!("* {name} has entered the room\n")
-                                                    .as_bytes(),
-                                            )
-                                            .await
-                                        {
-                                            tracing::error!("{why:?}");
-                                        }
-                                    }
-                                }
-                                Messages::UserMessage(name, message) => {
-                                    if name != local_name {
-                                        if let Err(why) = socket_holder
-                                            .write()
-                                            .await
-                                            .write(format!("[{name}] {message}\n").as_bytes())
-                                            .await
-                                        {
-                                            tracing::error!("{why:?}");
-                                        }
-                                    }
-                                }
-                                Messages::UserDisconnecting(name) => {
-                                    if name != local_name {
-                                        if let Err(why) = socket_holder
-                                            .write()
-                                            .await
-                                            .write(
-                                                format!("* {name} has left the room\n").as_bytes(),
-                                            )
-                                            .await
-                                        {
-                                            tracing::error!("{why:?}");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    })?;
             }
 
             let (_, right) = acc_data.split_at(newline_index + 1);
