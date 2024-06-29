@@ -1,3 +1,4 @@
+use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,8 +9,6 @@ use tokio::sync::{broadcast, RwLock};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
-
-const BUFFER_SIZE: usize = 1024;
 
 #[derive(clap::Parser)]
 struct Config {
@@ -53,6 +52,83 @@ impl<T: Clone + std::fmt::Debug> ValueHolder<T> {
     }
 }
 
+struct Connection {
+    buffer: RwLock<Vec<u8>>,
+    socket: RwLock<TcpStream>,
+}
+
+impl Connection {
+    const BUFFER_SIZE: usize = 1024;
+
+    pub fn new(socket: TcpStream) -> Self {
+        Self {
+            buffer: RwLock::new(Vec::new()),
+            socket: RwLock::new(socket),
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn get_next_newline_index(&self) -> Option<usize> {
+        let buffer = self.buffer.read().await;
+
+        buffer.iter().position(|b| *b == '\n' as u8)
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    async fn read_packet_to_buffer(&self) -> std::io::Result<bool> {
+        let mut buf = [0; Self::BUFFER_SIZE];
+
+        let bytes_read = self.socket.write().await.read(&mut buf).await?;
+
+        if bytes_read == 0 {
+            return Ok(false);
+        }
+
+        tracing::debug!("Received {bytes_read} bytes");
+
+        self.buffer
+            .write()
+            .await
+            .extend_from_slice(&buf[..bytes_read]);
+
+        Ok(true)
+    }
+
+    #[tracing::instrument(skip(self), ret)]
+    pub async fn read_next_chunk(&self) -> std::io::Result<Option<String>> {
+        while self.get_next_newline_index().await.is_none() {
+            if !self.read_packet_to_buffer().await? {
+                return Ok(None);
+            }
+        }
+
+        if let Some(index) = self.get_next_newline_index().await {
+            let mut buffer = self.buffer.write().await;
+
+            let chunk = String::from_utf8_lossy(&buffer[..=index]).to_string();
+
+            let (_, right) = buffer.split_at(index + 1);
+
+            *buffer = right.to_vec();
+
+            Ok(Some(chunk))
+        } else {
+            Err(Error::new(ErrorKind::NotFound, "Impossible to get newline"))
+        }
+    }
+
+    #[tracing::instrument(skip(self, data), err)]
+    pub async fn send<S: AsRef<str>>(&self, data: S) -> std::io::Result<usize> {
+        tracing::debug!("Sending {}", data.as_ref());
+
+        self.socket
+            .write()
+            .await
+            .write(data.as_ref().as_bytes())
+            .await
+    }
+}
+
 #[tracing::instrument(skip(socket, tx, accounts))]
 async fn process(
     socket: TcpStream,
@@ -61,12 +137,13 @@ async fn process(
     accounts: Arc<RwLock<Vec<String>>>,
 ) -> anyhow::Result<()> {
     let name = Arc::new(ValueHolder::new());
-    let socket_holder = Arc::new(RwLock::new(socket));
+
+    let connection = Arc::new(Connection::new(socket));
 
     let new_name = name.clone();
     let mut rx = tx.subscribe();
 
-    let new_socket_holder = socket_holder.clone();
+    let inner_connection = connection.clone();
 
     tokio::task::Builder::new()
         .name(&format!("Receive Loop: {addr}"))
@@ -76,10 +153,8 @@ async fn process(
                     match data {
                         Messages::UserJoining(name) => {
                             if name != local_name {
-                                if let Err(why) = new_socket_holder
-                                    .write()
-                                    .await
-                                    .write(format!("* {name} has entered the room\n").as_bytes())
+                                if let Err(why) = inner_connection
+                                    .send(format!("* {name} has entered the room\n"))
                                     .await
                                 {
                                     tracing::error!("{why:?}");
@@ -88,11 +163,8 @@ async fn process(
                         }
                         Messages::UserMessage(name, message) => {
                             if name != local_name {
-                                if let Err(why) = new_socket_holder
-                                    .write()
-                                    .await
-                                    .write(format!("[{name}] {message}\n").as_bytes())
-                                    .await
+                                if let Err(why) =
+                                    inner_connection.send(format!("[{name}] {message}\n")).await
                                 {
                                     tracing::error!("{why:?}");
                                 }
@@ -100,14 +172,14 @@ async fn process(
                         }
                         Messages::UserDisconnecting(name) => {
                             if name != local_name {
-                                if let Err(why) = new_socket_holder
-                                    .write()
-                                    .await
-                                    .write(format!("* {name} has left the room\n").as_bytes())
+                                if let Err(why) = inner_connection
+                                    .send(format!("* {name} has left the room\n"))
                                     .await
                                 {
                                     tracing::error!("{why:?}");
                                 }
+                            } else {
+                                break;
                             }
                         }
                     }
@@ -115,71 +187,32 @@ async fn process(
             }
         })?;
 
-    socket_holder
-        .write()
-        .await
-        .write("Welcome to budgetchat! What shall I call you?\n".as_bytes())
+    connection
+        .send("Welcome to budgetchat! What shall I call you?\n")
         .await?;
 
-    let mut acc_data = Vec::new();
-    let mut buf = [0; BUFFER_SIZE];
+    while let Some(message) = connection.read_next_chunk().await? {
+        if let Some(name) = name.read().await {
+            tx.send(Messages::UserMessage(name, message.trim().to_string()))?;
+        } else {
+            let local_name = message.trim().to_string();
 
-    loop {
-        let bytes_read = {
-            let mut socket = socket_holder.write().await;
+            name.write(local_name.clone()).await;
 
-            socket.read(&mut buf[..]).await?
-        };
+            tracing::info!("Connection from {local_name}");
 
-        if bytes_read == 0 {
-            break;
-        }
+            let other_accounts = { accounts.read().await.clone() };
 
-        tracing::debug!("Received {bytes_read} bytes");
+            tx.send(Messages::UserJoining(local_name.clone()))?;
 
-        acc_data.extend_from_slice(&buf[..bytes_read]);
+            connection
+                .send(format!(
+                    "* The room contains: {}\n",
+                    other_accounts.join(", ")
+                ))
+                .await?;
 
-        'inner: loop {
-            let newline_index = if let Some((index, _)) =
-                acc_data.iter().enumerate().find(|(_, b)| **b == '\n' as u8)
-            {
-                index
-            } else {
-                tracing::debug!("No newline found");
-                break 'inner;
-            };
-
-            let message = String::from_utf8_lossy(&acc_data[..=newline_index]);
-
-            tracing::debug!("Parsed message: {}", message);
-
-            if let Some(name) = name.read().await {
-                tx.send(Messages::UserMessage(name, message.trim().to_string()))?;
-            } else {
-                let local_name = message.trim().to_string();
-
-                name.write(local_name.clone()).await;
-
-                tracing::info!("Connection from {local_name}");
-
-                let other_accounts = { accounts.read().await.clone() };
-
-                tx.send(Messages::UserJoining(local_name.clone()))?;
-
-                socket_holder
-                    .write()
-                    .await
-                    .write(
-                        format!("* The room contains: {}\n", other_accounts.join(", ")).as_bytes(),
-                    )
-                    .await?;
-
-                accounts.write().await.push(local_name.clone());
-            }
-
-            let (_, right) = acc_data.split_at(newline_index + 1);
-
-            acc_data = right.to_vec();
+            accounts.write().await.push(local_name.clone());
         }
     }
 
